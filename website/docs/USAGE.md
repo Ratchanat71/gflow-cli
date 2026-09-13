@@ -1767,7 +1767,7 @@ shell scripts can branch on the failure mode without parsing stderr.
 | `0`  | —                     | Success                                          | —                                                          |
 | `1`  | unhandled exception   | Anything not derived from `GFlowError` — **or a deliberate CLI verdict**: `gflow auth status` exits 1 for a dead/unverifiable session | Re-run with `--verbose`; for `auth status` follow the printed hint; file a bug if it persists |
 | `2`  | usage error (Click)   | Bad usage / missing arg / profile missing        | Standard CLI usage error                                   |
-| `3`  | `AuthExpiredError`    | Session cookies rejected by Flow (401/403), or Flow served one of its OAuth/sign-in routes instead of the page gflow asked for ([#756](https://github.com/ffroliva/gflow-cli/issues/756)) | `gflow auth login --profile <name>`                        |
+| `3`  | `AuthExpiredError`    | Session cookies rejected by Flow (401/403), or Flow served one of its OAuth/sign-in routes instead of the page gflow asked for ([#756](https://github.com/ffroliva/gflow-cli/issues/756)) | `gflow auth login --profile <name>` — **but read the error's own `remediation_hint` first.** `AisandboxAuthError` shares this code, and when `gflow credits` fails on an account migrated to `flow.google.com` re-logging in cannot help and can roll the profile's browser-strategy marker back ([#795](https://github.com/ffroliva/gflow-cli/issues/795), [#791](https://github.com/ffroliva/gflow-cli/issues/791)) |
 | `4`  | `RateLimitError`      | Quota / rate limit hit, exhausted retries        | Wait + reduce `GFLOW_CLI_CONCURRENCY`                      |
 | `5`  | `ContentPolicyError`  | Flow rejected the prompt (200 + empty `media[]`) | Soften prompt wording                                      |
 | `6`  | `NetworkError`        | Network failure persisted across 3 attempts      | Check connectivity                                         |
@@ -1832,7 +1832,7 @@ if [ "$rc" -ne 0 ]; then
 
   case "$rc" in
     2)   echo "Bad CLI usage (missing arg, bad flag)"; exit 1 ;;
-    3)   echo "Auth expired — run: gflow auth login"; exit 1 ;;
+    3)   echo "Auth rejected — read the error's remediation_hint; it is NOT always a re-login"; exit 1 ;;
     4|6) echo "Transient infra issue (rate limit / network) — try again later"; exit 1 ;;
     5)   echo "Content policy rejected the prompt — rewrite and retry"; exit 1 ;;
     7)   echo "Flow API shape changed — upgrade gflow-cli or file a bug"; exit 1 ;;

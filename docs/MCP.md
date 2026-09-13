@@ -347,21 +347,20 @@ gflow credits user         # does the Bearer path still work for this account?
 |---|---|---|---|
 | verified | a balance | labs session alive | Everything documented works |
 | verified | fails, `"the labs.google session returned no access token"` | migrated; labs authenticates but never mints the `ya29` Bearer | `credits` cannot work. Since v0.73.2 the remediation says so ([#795](https://github.com/ffroliva/gflow-cli/issues/795)) |
-| verified | fails, `"aisandbox-pa returned 401 after token refresh"` | migrated; a token exists but aisandbox-pa rejects it | Same outcome, **different message** — and this one still advises re-authenticating (see below). Measured on a migrated account, v0.73.2, 2026-09-13 |
+| verified | fails, `"credits endpoint returned 401"` | migrated; a token exists but aisandbox-pa rejects it | Same outcome, different raise site. Since v0.74.0 this one names the cause too ([#795](https://github.com/ffroliva/gflow-cli/issues/795)); through v0.73.2 it read `"aisandbox-pa returned 401 after token refresh"`. Measured on a migrated account, 2026-09-13 |
 | "Signed in to Google, but not to the Flow app" **forever** | — | migrated; labs no longer mints a Flow session at all | Login cannot complete on the released build. Tracked in [#791](https://github.com/ffroliva/gflow-cli/issues/791) |
 
 In every migrated row, **generation over the migrated composer still works** — only the
 aisandbox REST reads fail.
 
-> **A `credits` failure does not mean your cookies are stale.** Two different raise sites
-> produce it. The no-token one names the real cause since v0.73.2. The other —
-> `"aisandbox-pa returned 401 after token refresh"`, from the browser-context fallback —
-> still carries the class-default remediation, *"SAPISID cookie missing, expired, or
-> unreadable. Re-run `gflow auth login`"*. On a migrated account SAPISID is typically
-> present and fine, and **re-running `gflow auth login` will not help**. If the profile has
-> no browser-strategy marker yet, it can make things worse: a failed *first* login rolls
-> that marker back. **If `auth status` says verified and only `credits` fails, believe
-> `auth status`.**
+> **A `credits` failure does not mean your cookies are stale.** Two raise sites produce it
+> — labs answering with no token, and aisandbox-pa rejecting the token labs did issue —
+> and since v0.74.0 **both name the real cause**. On a migrated account SAPISID is
+> typically present and fine, and **re-running `gflow auth login` will not help**. If the
+> profile has no browser-strategy marker yet, it can make things worse: a failed *first*
+> login rolls that marker back. **If `auth status` says verified and only `credits` fails,
+> believe `auth status`.** Through v0.73.2 the second site carried the class-default
+> SAPISID advice instead — see the CHANGELOG for why.
 
 The migrated composer itself also comes in more than one shape. If `gflow_generate_video`
 fails pre-submit with a selector-drift envelope naming `.settings-trigger-button` as

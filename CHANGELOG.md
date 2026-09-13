@@ -31,6 +31,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Reported, root-caused and verified end-to-end on the affected cohort by **@ai4U23**.
 
+- **`gflow credits` stopped sending migrated accounts to re-login, on the raise site they
+  actually hit (#795).** v0.73.2 fixed the message for a labs session that mints no token.
+  It did not help the cohort that gets a token and has aisandbox-pa reject it, and it could
+  not: the service caught its own accurate verdict and re-derived it through a browser,
+  which fails inside the shared, route-blind aisandbox retry helper and so reported
+  *"aisandbox-pa returned 401 after token refresh — SAPISID cookie missing, expired, or
+  unreadable. Re-run `gflow auth login`"*. Every word of that is wrong here: aisandbox-pa
+  answered, SAPISID is what let labs mint the token, and on a migrated account re-login can
+  roll the profile's strategy marker back and start #791.
+
+  The browser is no longer consulted once aisandbox-pa has **answered**: it asks the same
+  endpoint for the same Bearer and gets the same refusal. The other raise site — labs
+  answering with no token — keeps its browser rescue, because that one is not proven
+  unreachable: httpx sends labs.google cookies only, while the browser carries the full jar
+  and bootstraps a real navigation, which can renew a session httpx cannot. If that rescue
+  fails too, the fast path's diagnosis is what survives, not the route-blind default.
+
+  `gflow credits list` also reports the remediation per profile now. It rendered only the
+  class title, so the multi-profile surface — and `gflow_get_credits(all_profiles=true)`
+  with it — was the one place that still could not say why, or that re-login would not help.
+
+  Measured on a migrated profile: `gflow credits user` went from ~7 s to ~2 s with no
+  browser launch, and across 9 saved profiles `credits list` dropped from 9 Chrome launches
+  to 6 — the 3 on the aisandbox-401 cohort skip it, the rest keep their rescue. Applies to
+  the MCP twin `gflow_get_credits` identically: both doors share the service and the
+  envelope.
+
+  `credits` itself is still unavailable on migrated accounts; the balance surface for that
+  cohort has not been located. #795 stays open for it.
+
 ## [0.73.2] — 2026-09-12
 
 ### Fixed
