@@ -84,7 +84,7 @@ The server registers three protocol surfaces:
 ### Tools (Executable actions)
 * `gflow_generate_image(prompt, model, aspect, count, seed, reference_images, reference_entities, reference_entity_names, tools, profile, project, project_name, instructions, ui_mode, output, wait)`: Triggers text-to-image / image-to-image (Imagen / Nano Banana). `instructions` is an optional list of ephemeral agent-instruction strings (agentic cohort only). `reference_images` switches to i2i and accepts **either a local file path or a generated image's Flow media UUID**. A UUID reference is attached by **selecting the already-existing asset in Flow's reference picker — no duplicate copy is uploaded** (locating the tile by the media id in its thumbnail URL, and searching the recorded display name to surface it when needed); gflow falls back to uploading the asset's on-disk local file only when it can't be located in place (e.g. it lives in a different project's picker). `project` generates into an existing Flow project id (mirrors CLI `--project`) — pass the reference's project to keep it selectable in place. `ui_mode` selects the Flow UI arm (`auto`/`classic`/`agentic`, mirroring CLI `--ui-mode`, matched case-insensitively). Since [#595](https://github.com/ffroliva/gflow-cli/issues/595) `auto` means "no arm was asked for" and **resolves to `classic`** — the arm that can satisfy an image request — so an account in Flow's agentic cohort aborts pre-submit (exit-28 equivalent envelope, zero credits) instead of failing mid-run with selector drift or video bytes; the agentic arm is bound only when named. Passing `instructions` forces `agentic` automatically, so `ui_mode="classic"` + `instructions` is a hard conflict rather than a silent drop. An unknown value returns a 400 problem-details envelope. See [CONFIGURATION § GFLOW_CLI_UI_MODE](CONFIGURATION.md#gflow_cli_ui_mode).
   On migrated `flow.google.com` accounts, T2I and local-file I2I are supported with Nano Banana 2 / Pro, the four measured aspects (16:9, 4:3, 1:1, 9:16) and count 1–4; the page owns reCAPTCHA and the `ogiZ0b` submit. UUID/entity references, instructions and Imagen 4 remain pre-submit refusals there. The queued (`wait=false`) and blocking (`wait=true`) calls use the same typed payload and worker path.
-* `gflow_generate_video(prompt, mode, aspect, initial_frame, end_frame, reference_images, reference_entities, reference_entity_names, model, duration, count, tools, profile, project, project_name, ui_mode, output, wait)`: Triggers vertical or landscape video generation (Veo). `mode` is `t2v`/`i2v`/`r2v`; `model` (`veo_lite`/`veo_fast`/`veo_quality`/`omni_flash`, aliases accepted), `duration` (seconds — 4/6/8 for Veo 3.1 and 4/6/8/10 for omni_flash; 10 is omni_flash-only). **Whether Flow renders a duration control at all is account/cohort-dependent**: on an account that renders none, the job is accepted here and fails in the worker pre-submit (exit 23 equivalent on the labs driver, exit 11 equivalent on the migrated `flow.google.com` host — now the default t2v route, #650 — no credits spent either way) rather than being rejected up front — see [KNOWN_ISSUES](https://github.com/ffroliva/gflow-cli/blob/main/KNOWN_ISSUES.md) (#451/#288/#630), and `count` mirror the CLI `gflow video` flags — an omitted `model` lets the transport apply its i2v veo-lite default (issue #125), and every model — `omni_flash` included — accepts i2v with a start frame and with an end frame (wire-verified 2026-09-02, issue #626); `i2v` requires `initial_frame`, `r2v` requires `reference_images` **or** `reference_entities`; `project` generates into an existing Flow project id (mirrors CLI `--project`); on an account Google has moved to `flow.google.com` (`GFLOW_CLI_FLOW_HOST`, read from the server/daemon environment, not per call — see [CONFIGURATION § GFLOW_CLI_FLOW_HOST](CONFIGURATION.md#gflow_cli_flow_host)) `project` is **required** and omitting it returns the exit-11-equivalent envelope; there the ported modes are text-to-video; image-to-video with a **local** `initial_frame` and no `end_frame` (the file is uploaded through the editor and bound on the Start chip by file name — it stays in the Flow project like any upload); and reference-to-video with local `reference_images` (each file is uploaded the same way and attached as an `@` mention in the prompt; `duration` there accepts only `8` and is pinned when omitted — Flow offers r2v at its base tier alone, and at 4 or 6 it silently drops the references and bills a text-to-video clip, so any other value returns the exit-11-equivalent envelope). A Flow media UUID as `initial_frame`, an `end_frame`, and `r2v` by `reference_entity_names` or `reference_entities` return the exit-36-equivalent envelope. `initial_frame`, `end_frame`, and `reference_images` each accept **either a local file path or the Flow image UUID of a generated asset** — pass a generated image's id straight in to chain image→video, and gflow attaches it for you. Since v0.58.0 (#529) the CLI and MCP surfaces are unified for i2v frames: the UUID keeps its identity and is enriched with the catalog's recorded display name plus an integrity-verified local fallback, so the transport prefers **selecting the exact asset in the project's media picker** (no duplicate upload) and re-uploads the recorded local file only when the tile is unreachable — and only if its byte count/SHA-256 still match. A UUID that isn't in your local asset catalog is rejected up front with a clear "Reference Not Found" error; a catalogued asset with neither a display name nor a verified local file gives a "Reference Not Usable" error (re-generate it or pass a local path). `r2v` UUID refs are resolved to the recorded local file for upload. `ui_mode` selects the Flow UI arm (#299 PR-A, mirroring CLI `--ui-mode`) and **applies to every mode of this tool, including `r2v`** — unlike the CLI, where `video r2v`/`chain` have no flag and follow the env-only path. Video generation has **only a classic driver**, so `auto` ≡ `classic`: both verify the classic editor pre-submit and abort before spending credits if it is unreachable. `ui_mode="agentic"` is rejected with a 400 problem-details envelope, because no agentic video driver exists yet. Values are matched case-insensitively. (MCP tools return envelopes, never process exit codes — the CLI equivalents of these aborts are exit 28 and exit 2 respectively.) See [CONFIGURATION § GFLOW_CLI_UI_MODE](CONFIGURATION.md#gflow_cli_ui_mode).
+* `gflow_generate_video(prompt, mode, aspect, initial_frame, end_frame, reference_images, reference_entities, reference_entity_names, model, duration, count, tools, profile, project, project_name, ui_mode, output, wait)`: Triggers vertical or landscape video generation (Veo). `mode` is `t2v`/`i2v`/`r2v`; `model` (`veo_lite`/`veo_fast`/`veo_quality`/`omni_flash`, aliases accepted), `duration` (seconds — 4/6/8 for Veo 3.1 and 4/6/8/10 for omni_flash; 10 is omni_flash-only). **Whether Flow renders a duration control at all is account/cohort-dependent**: on an account that renders none, the job is accepted here and fails in the worker pre-submit (exit 23 equivalent on the labs driver, exit 11 equivalent on the migrated `flow.google.com` host — now the default t2v route, #650 — no credits spent either way) rather than being rejected up front — see [KNOWN_ISSUES](https://github.com/ffroliva/gflow-cli/blob/main/KNOWN_ISSUES.md) (#451/#288/#630), and `count` mirror the CLI `gflow video` flags — an omitted `model` lets the transport apply its i2v veo-lite default (issue #125), and every model — `omni_flash` included — accepts i2v with a start frame and with an end frame (wire-verified 2026-09-02, issue #626); `i2v` requires `initial_frame`, `r2v` requires `reference_images` **or** `reference_entities`; `project` generates into an existing Flow project id (mirrors CLI `--project`); on an account Google has moved to `flow.google.com` (`GFLOW_CLI_FLOW_HOST`, read from the server/daemon environment, not per call — see [CONFIGURATION § GFLOW_CLI_FLOW_HOST](CONFIGURATION.md#gflow_cli_flow_host)) `project` is **required** and omitting it returns the exit-11-equivalent envelope; there the ported modes are text-to-video; image-to-video with a **local** `initial_frame` and no `end_frame` (the file is uploaded through the editor and bound on the Start chip by display name — it stays in the Flow project like any upload, under a **run-unique** name: `hero.png` is listed as `hero-a1b2c3d4.png`, so a re-run cannot bind an earlier upload — [#792](https://github.com/ffroliva/gflow-cli/issues/792)); and reference-to-video with local `reference_images` (each file is uploaded the same way — run-unique name included — and attached as an `@` mention of *that* name in the prompt; `duration` there accepts only `8` and is pinned when omitted — Flow offers r2v at its base tier alone, and at 4 or 6 it silently drops the references and bills a text-to-video clip, so any other value returns the exit-11-equivalent envelope). A Flow media UUID as `initial_frame`, an `end_frame`, and `r2v` by `reference_entity_names` or `reference_entities` return the exit-36-equivalent envelope. `initial_frame`, `end_frame`, and `reference_images` each accept **either a local file path or the Flow image UUID of a generated asset** — pass a generated image's id straight in to chain image→video, and gflow attaches it for you. Since v0.58.0 (#529) the CLI and MCP surfaces are unified for i2v frames: the UUID keeps its identity and is enriched with the catalog's recorded display name plus an integrity-verified local fallback, so the transport prefers **selecting the exact asset in the project's media picker** (no duplicate upload) and re-uploads the recorded local file only when the tile is unreachable — and only if its byte count/SHA-256 still match. A UUID that isn't in your local asset catalog is rejected up front with a clear "Reference Not Found" error; a catalogued asset with neither a display name nor a verified local file gives a "Reference Not Usable" error (re-generate it or pass a local path). `r2v` UUID refs are resolved to the recorded local file for upload. `ui_mode` selects the Flow UI arm (#299 PR-A, mirroring CLI `--ui-mode`) and **applies to every mode of this tool, including `r2v`** — unlike the CLI, where `video r2v`/`chain` have no flag and follow the env-only path. Video generation has **only a classic driver**, so `auto` ≡ `classic`: both verify the classic editor pre-submit and abort before spending credits if it is unreachable. `ui_mode="agentic"` is rejected with a 400 problem-details envelope, because no agentic video driver exists yet. Values are matched case-insensitively. (MCP tools return envelopes, never process exit codes — the CLI equivalents of these aborts are exit 28 and exit 2 respectively.) See [CONFIGURATION § GFLOW_CLI_UI_MODE](CONFIGURATION.md#gflow_cli_ui_mode).
 
 > **Attaching a saved character (the identity axis).** Three routes reach Flow's
 > `referenceEntities` wire and they dedupe against each other: an `@Name` mention inside
@@ -316,3 +316,99 @@ Because the MCP server runs locally, inheriting the host user's permissions and 
 4. **Local Rate-Limiting:** Enforces a token-bucket rate limiter with a capacity of 8 tokens and a refill rate of 1 token every 20 seconds (allowing burst filmmaking tasks without timeouts). This is the **only** spend brake — there is no credit-budget accounting or per-session/daily cap (#495; a registration-time `--no-spend` gate is tracked in #496).
 5. **CLI-MCP Parameter Symmetry:** Two CI layers guard the surfaces against drift: `tests/mcp/test_cli_parity.py` forces an explicit MCP decision (mapped tool or stated exemption) for every CLI leaf command, and `tests/mcp/test_server.py::TestCliMcpParameterSymmetry` compares CLI Click parameters against registered tool signatures for the two generate tools. Parameter-level comparison does not yet cover the other tools.
 6. **No-Spend Mode (#496):** `gflow mcp run --no-spend` (or `GFLOW_MCP_NO_SPEND=1`, which also covers `gflow serve`) never registers the credit-spending generate tools — `gflow_generate_image` and `gflow_generate_video` are absent from `tools/list` entirely, rather than present-but-refusing. Both are gated because image generation is only empirically free and no-spend is a hard guarantee. Listing, instructions, and other read-only tools remain available.
+
+---
+
+## 6. Troubleshooting a failed tool call
+
+A failing MCP tool call gives an agent much less to go on than a CLI run gives a human:
+there is no `--help` to re-read, no stderr to scroll, and the envelope is deliberately
+narrow (no local paths, no raw exception text — see [§ Error envelope](#error-envelope)).
+This section is the decoder.
+
+**Read the envelope in this order:** `retryable` → `status` → `title` → `detail`. Never
+re-derive `retryable` from the class name; a raise site can override its class, and one
+does today.
+
+### 6.1 First question: which cohort is this account in?
+
+Google is moving accounts from `labs.google/fx/tools/flow` onto `flow.google.com`, and
+**the move is not one step**. Several distinct account states exist at once, they change
+without notice, and most confusing migrated-host failures are really "this account is in a
+different state than the one the message assumes". Establish the state before diagnosing
+anything else — it is a $0, read-only check:
+
+```bash
+gflow auth status          # which host minted the session, and for whom
+gflow credits user         # does the Bearer path still work for this account?
+```
+
+| `auth status` | `credits user` | What you are on | Consequence |
+|---|---|---|---|
+| verified | a balance | labs session alive | Everything documented works |
+| verified | fails, `"the labs.google session returned no access token"` | migrated; labs authenticates but never mints the `ya29` Bearer | `credits` cannot work. Since v0.73.2 the remediation says so ([#795](https://github.com/ffroliva/gflow-cli/issues/795)) |
+| verified | fails, `"aisandbox-pa returned 401 after token refresh"` | migrated; a token exists but aisandbox-pa rejects it | Same outcome, **different message** — and this one still advises re-authenticating (see below). Measured on a migrated account, v0.73.2, 2026-09-13 |
+| "Signed in to Google, but not to the Flow app" **forever** | — | migrated; labs no longer mints a Flow session at all | Login cannot complete on the released build. Tracked in [#791](https://github.com/ffroliva/gflow-cli/issues/791) |
+
+In every migrated row, **generation over the migrated composer still works** — only the
+aisandbox REST reads fail.
+
+> **A `credits` failure does not mean your cookies are stale.** Two different raise sites
+> produce it. The no-token one names the real cause since v0.73.2. The other —
+> `"aisandbox-pa returned 401 after token refresh"`, from the browser-context fallback —
+> still carries the class-default remediation, *"SAPISID cookie missing, expired, or
+> unreadable. Re-run `gflow auth login`"*. On a migrated account SAPISID is typically
+> present and fine, and **re-running `gflow auth login` will not help**. If the profile has
+> no browser-strategy marker yet, it can make things worse: a failed *first* login rolls
+> that marker back. **If `auth status` says verified and only `credits` fails, believe
+> `auth status`.**
+
+The migrated composer itself also comes in more than one shape. If `gflow_generate_video`
+fails pre-submit with a selector-drift envelope naming `.settings-trigger-button` as
+present-but-hidden, and no `agent-mode-chip` exists on the page, the account is on the
+**agent-only composer**, which has no classic composer at all — there is nothing to drive
+yet ([#799](https://github.com/ffroliva/gflow-cli/issues/799)).
+
+### 6.2 Envelope → cause → what to do
+
+| What you see | Almost always | Do this |
+|---|---|---|
+| `retryable: true`, WAF / rate-limit / timeout | Transient | Re-run once. If it repeats immediately, stop — it is not transient |
+| selector drift, *"the frame picker stayed open … and stayed open after its confirm was clicked"* | Flow changed the Frames picker again | File it with the verbatim `detail`; the raise sites are textually distinct and the string identifies which one |
+| selector drift, *"… and carries no confirm"* | A cohort whose picker neither commits nor offers a confirm | As above — this is a new shape, not [#792](https://github.com/ffroliva/gflow-cli/issues/792) |
+| *"the Start chip did not bind"* | The search and the click both landed; the chip still did not take the thumbnail | **Not retryable** (`retryable: false`) — gflow refuses to submit rather than let it go out as text-to-video. File it with the verbatim detail. (Late server-side indexing is a *different* failure — "lists no asset named …" — and that path already retries internally) |
+| exit-27-equivalent, upload rejected, a dialog opened and no request left the page | Flow's **one-time** "rights to use this image" confirmation | Open the project on flow.google.com, upload any image **by hand**, accept it. gflow will not click it for you: it affirms that *you* hold the rights. Once per account, then uploads run unattended |
+| exit-11-equivalent, missing `project` | Migrated host requires an existing project | Pass `project`; project creation is not ported |
+| exit-36-equivalent | The capability is not ported to the migrated host | See [CONFIGURATION § GFLOW_CLI_FLOW_HOST](CONFIGURATION.md#gflow_cli_flow_host) for exactly what is served there |
+| *"Profile is missing its browser-strategy marker"* (409, `retryable: false`, from `gflow_auth_status`) | The profile's browser-strategy marker is gone — typically after a failed first login | `gflow auth login --browser chrome`. It is **not** a network problem, whatever an older build told you |
+| `"Unexpected <Class>; details were logged server-side."` (500) | A non-gflow exception; the text is masked on purpose | Read the server's structured log for `mcp.tool.unexpected_error` — the traceback is there, not in the envelope |
+
+### 6.3 Getting evidence an agent can actually send
+
+The envelope carries an `incident` object (`{id, capture_status}` only — never a path).
+Resolve it on the machine running the server:
+
+```
+<GFLOW_CLI_HOME>/incidents/<YYYY-MM-DD>/<stamp>-<incident-id>-<rand>/
+```
+
+Layout and what triggers a capture are in
+[DEBUGGING § Automatic incident bundles](DEBUGGING.md#automatic-incident-bundles).
+
+**Judge the bundle before you trust it.** A bundle whose `ui.json` has all tag counts at
+`0` and a blank white screenshot photographed an `about:blank` page, not your failure —
+that was a real defect in gflow (fixed in v0.73.2), so a bundle with that signature from an
+older build carries **no** information about what went wrong. It is not evidence that the
+page was blank.
+
+For a run you can reproduce, raise the log level on the server process
+(`GFLOW_CLI_LOG_LEVEL=DEBUG`) and capture stderr — MCP writes every structured log line
+there, never to the stdio pipe.
+
+### 6.4 Before filing
+
+Include the verbatim `detail` string, the `retryable`/`status` pair, the two cohort
+commands from §6.1, and `gflow --version`. **Redact** account identifiers, cookie and token
+values, and signed media URLs before pasting anything into an issue. If you have an
+incident bundle, say so — but do not paste it: it contains prompts and can contain
+identity-bearing attributes.
