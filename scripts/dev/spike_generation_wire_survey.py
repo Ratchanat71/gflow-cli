@@ -14,11 +14,15 @@ page that DOES open a socket (it fired), then isolated the one blind-spot class 
 pages sending `COOP: same-origin` — and confirmed neither Flow host is in it
 (flow.google.com sends `same-origin-allow-popups`, labs.google sends none).
 
-WHY IMAGE AND NOT VIDEO. `gflow image t2i` spends **zero Veo credits** (AGENTS.md
-cost table: `e2e_image` = "zero credits, daily cap"); video spends real credits for
-the same answer to this question. If a push channel exists for generation progress it
-is overwhelmingly likely to be shared by both — and if this spike finds one, THAT is
-the moment to spend credits confirming it on the video path, not before.
+WHY IMAGE FIRST, AND WHY VIDEO IS A SEPARATE QUESTION (`--mode video`). The image
+arm ran first because `gflow image t2i` spends **zero Veo credits** (AGENTS.md cost
+table: `e2e_image` = "zero credits, daily cap"). Its pre-registration justified that
+with "if a push channel exists for progress it is overwhelmingly likely to be shared
+by both" — and the result **weakened that reasoning rather than confirming it**.
+Images turned out to use a single held response with no poll at all; video uses a
+**poll loop** (`jwpduf`, `as29s`; `migrated_composer.py:169`). Different mechanisms,
+so an absence on one is NOT an absence on the other. The video arm exists because the
+image answer does not transfer, and it is the only thing here that costs credits.
 
 WHAT IT MEASURES, across the whole submit->poll->download lifecycle:
 
@@ -55,13 +59,48 @@ the data exists, because survey #1 could not prove that ordering and said so:
        `/about` cells into a "12/12" claim and its audit caught it; that mistake is
        not available twice.
 
-COST: one image generation. Zero Veo credits, one unit of the daily image quota.
-No video. Nothing is created server-side beyond the image itself, which lands in the
-project like any other.
+PRE-REGISTERED READING, VIDEO ARM (`--mode video`) — written before any video data
+existed, and committed before the run. The question is narrow on purpose: *does
+anything arrive between `jwpduf` polls, and are the polls a client timer or a
+reaction?* The image answer cannot settle it (see above), so only these readings
+apply to the video path:
+
+  * Poll gaps between consecutive `jwpduf` calls are UNIFORM
+    -> a client-side timer we already own. `migrated_composer.py` is doing the only
+       thing available; latency is ours to tune, and nothing signals the page.
+  * Poll gaps COLLAPSE near completion (or one gap is far shorter than the rest)
+    -> something told the client. Push is NOT absent on this path until that
+       something is identified. Record what arrived immediately before the short gap.
+  * ANY non-`batchexecute` traffic, WebSocket event, or streaming content-type lands
+    BETWEEN two polls
+    -> that is the candidate signal; report it with its offset from the neighbouring
+       polls. An `ogads-pa.clients6.google.com` hit is the OneGoogle account bar and
+       is NOT Flow (measured twice already) — name it and exclude it explicitly.
+  * A `jwpduf` (or `as29s`) request is HELD IN FLIGHT for many seconds
+    -> long-poll, i.e. server push by another name, and the same mechanism the image
+       path uses. `in_flight_s` is what distinguishes this from a late reply; without
+       dispatch timing the two are indistinguishable, which is why the image arm's
+       instrument was rebuilt mid-spike.
+  * Submit refused, credits short, composer never loads, or the run times out
+    -> **UNMEASURED.** Not evidence of absence, and it must NOT be folded into a
+       zero-WebSocket count. Survey #1 folded four `/about` cells into a "12/12"
+       claim and its own audit caught it. A re-run costs credits: ASK before spending
+       a second generation rather than looping.
+
+COST:
+  * `--mode image` (default): zero Veo credits, one unit of the daily image quota.
+  * `--mode video`: **REAL VEO CREDITS.** One generation per run. The model is pinned
+    to `veo_3_1_lite` (10 credits, the cheapest — `api/video.py:I2V_DEFAULT_MODEL`)
+    and the count to x1, because with `model=None` the editor submits on whatever
+    tier it last remembered, which may be the 100-credit one (#125). Use `--runs 1`.
+Nothing is created server-side beyond the media itself, which lands in the project
+like any other; the video arm does not download it.
 
 USAGE:
     python scripts/dev/spike_generation_wire_survey.py --profile ffroliva \
         --project c5550ed7-7b6e-43db-8cd3-4d56a74b1244 --runs 2
+    python scripts/dev/spike_generation_wire_survey.py --profile ffroliva \
+        --project c5550ed7-7b6e-43db-8cd3-4d56a74b1244 --mode video --runs 1
 
 Chrome starts through `FlowApiClient`, which takes the profile lease first. A
 `ProfileLockedError` means the lease is working — wait, or use another profile;
@@ -109,7 +148,7 @@ def _classify(ctype: str) -> str:
     return low.split(";")[0] or "unknown"
 
 
-async def run_once(client: Any, project_id: str, run: int) -> dict[str, Any]:
+async def run_once(client: Any, project_id: str, run: int, mode: str) -> dict[str, Any]:
     """Drive one real generation with the wire fully instrumented."""
     from gflow_cli.api.transports import migrated_composer as mc
 
@@ -166,6 +205,10 @@ async def run_once(client: Any, project_id: str, run: int) -> dict[str, Any]:
                     "url": url[:200],
                 }
             )
+            sent = sent_at.get(resp.request)
+            if sent is not None:
+                events[-1]["sent_t"] = sent
+                events[-1]["in_flight_s"] = round(events[-1]["t"] - sent, 3)
         except Exception:  # noqa: BLE001 — a torn-down response is not a finding
             return
 
@@ -178,13 +221,18 @@ async def run_once(client: Any, project_id: str, run: int) -> dict[str, Any]:
     # 32 s after submit is indistinguishable between "sent late" and "held open for
     # 32 s" -- and the second is a long-poll, i.e. server push by another name. The
     # first run of this spike could not tell them apart.
-    sent_at: dict[str, float] = {}
+    #
+    # Keyed on the Request OBJECT, not the URL. The image arm fired `ogiZ0b` exactly
+    # once, so a url-keyed dict was harmless there; the VIDEO arm polls `jwpduf` for
+    # minutes, and any two polls sharing a URL would overwrite each other and hand
+    # back an `in_flight_s` belonging to a different request. Playwright hands the
+    # same Request instance to `page.on("request")` and to `response.request`.
+    sent_at: dict[Any, float] = {}
 
     def _on_request(req: Any) -> None:
         try:
-            url = str(req.url)
-            if "batchexecute" in url:
-                sent_at[url[:200]] = round(time.monotonic() - t0, 3)
+            if "batchexecute" in str(req.url):
+                sent_at[req] = round(time.monotonic() - t0, 3)
         except Exception:  # noqa: BLE001
             return
 
@@ -202,19 +250,40 @@ async def run_once(client: Any, project_id: str, run: int) -> dict[str, Any]:
         await page.goto("about:blank", wait_until="domcontentloaded", timeout=30_000)
         await composer.ensure_editor(page, project_id)
         events.append({"t": round(time.monotonic() - t0, 3), "marker": "editor_ready"})
-        from gflow_cli.api.image import GenerateImageRequest
+        if mode == "video":
+            from gflow_cli.api.video import GenerateVideoRequest, Mode, VideoModel
 
-        request = GenerateImageRequest(prompt=PROMPT)
-        await composer.apply_image_settings(page, request)
-        # send_prompt is NOT optional, and leaving it out is not a Flow finding.
-        # `run_images` types the prompt before submitting; without it the submit
-        # control is correctly disabled and the run dies as "submit stayed disabled",
-        # which reads exactly like selector drift. Measured on the first attempt of
-        # this very spike -- a selector that does not match is evidence about the
-        # selector, and here it was evidence about the harness.
-        await composer.send_prompt(page, request.prompt)
-        events.append({"t": round(time.monotonic() - t0, 3), "marker": "submit_begin"})
-        result = await composer.submit_images_and_observe(page, request)
+            # veo_3_1_lite (10 credits) and x1, pinned: with model=None the editor
+            # submits on whatever tier it last remembered, possibly the 100-credit
+            # one (#125). t2v so nothing is uploaded and the attach stages stay out
+            # of the measurement.
+            video = GenerateVideoRequest(
+                prompt=PROMPT, mode=Mode.T2V, model=VideoModel.VEO_3_1_LITE, count=1
+            )
+            await composer.apply_video_settings(page, video)
+            await composer.send_prompt(page, video.prompt)
+            events.append({"t": round(time.monotonic() - t0, 3), "marker": "submit_begin"})
+            # The page polls jwpduf/as29s on its own; this driver adds no traffic
+            # (migrated_composer module docstring), so the cadence recorded here is
+            # Flow's, not ours. Not downloaded: the clip stays in the project.
+            record = await composer.submit_and_observe(
+                page, poll_timeout_s=600.0, on_started=None, project_id=project_id
+            )
+            result: Any = record
+        else:
+            from gflow_cli.api.image import GenerateImageRequest
+
+            request = GenerateImageRequest(prompt=PROMPT)
+            await composer.apply_image_settings(page, request)
+            # send_prompt is NOT optional, and leaving it out is not a Flow finding.
+            # `run_images` types the prompt before submitting; without it the submit
+            # control is correctly disabled and the run dies as "submit stayed disabled",
+            # which reads exactly like selector drift. Measured on the first attempt of
+            # this very spike -- a selector that does not match is evidence about the
+            # selector, and here it was evidence about the harness.
+            await composer.send_prompt(page, request.prompt)
+            events.append({"t": round(time.monotonic() - t0, 3), "marker": "submit_begin"})
+            result = await composer.submit_images_and_observe(page, request)
         events.append(
             {
                 "t": round(time.monotonic() - t0, 3),
@@ -241,15 +310,18 @@ async def run_once(client: Any, project_id: str, run: int) -> dict[str, Any]:
     for e in events:
         if "url" in e:
             e["protocol"] = protocols.get(e["url"], "")
-            sent = sent_at.get(e["url"])
-            if sent is not None:
-                e["sent_t"] = sent
-                e["in_flight_s"] = round(e["t"] - sent, 3)
 
     polls = [e for e in events if e.get("rpcid")]
     gaps = [round(b["t"] - a["t"], 3) for a, b in zip(polls, polls[1:], strict=False)]
+    # Gaps PER rpcid too. "jwpduf every 5 s" is a claim about one rpcid's cadence,
+    # and an all-traffic gap list hides it whenever anything else interleaves.
+    per_rpcid_gaps: dict[str, list[float]] = {}
+    for rpcid in {str(e["rpcid"]) for e in polls}:
+        ts = [e["t"] for e in polls if e["rpcid"] == rpcid]
+        per_rpcid_gaps[rpcid] = [round(b - a, 3) for a, b in zip(ts, ts[1:], strict=False)]
     return {
         "run": run,
+        "mode": mode,
         "error": error,
         "measured": error is None,
         "duration_s": round(time.monotonic() - t0, 2),
@@ -268,6 +340,7 @@ async def run_once(client: Any, project_id: str, run: int) -> dict[str, Any]:
             reverse=True,
         )[:8],
         "poll_gaps_s": gaps,
+        "poll_gaps_by_rpcid_s": per_rpcid_gaps,
         "markers": [e for e in events if "marker" in e],
         "events": events,
     }
@@ -278,13 +351,30 @@ async def main() -> int:
     ap.add_argument("--profile", required=True)
     ap.add_argument("--project", required=True)
     ap.add_argument("--runs", type=int, default=2)
+    ap.add_argument(
+        "--mode",
+        choices=("image", "video"),
+        default="image",
+        help="image: daily quota, zero Veo credits. video: REAL VEO CREDITS (10/run).",
+    )
     args = ap.parse_args()
 
-    report: dict[str, Any] = {"profile": args.profile, "project": args.project, "runs": []}
+    if args.mode == "video":
+        print(
+            f"!! --mode video spends REAL Veo credits: ~10 per run x {args.runs} run(s).",
+            flush=True,
+        )
+
+    report: dict[str, Any] = {
+        "profile": args.profile,
+        "project": args.project,
+        "mode": args.mode,
+        "runs": [],
+    }
     async with build_client(resolve_profile_dir(args.profile)) as client:
         for run in range(1, args.runs + 1):
-            print(f"[run {run}] generating…", flush=True)
-            obs = await run_once(client, args.project, run)
+            print(f"[run {run}] generating ({args.mode})…", flush=True)
+            obs = await run_once(client, args.project, run, args.mode)
             report["runs"].append(obs)
             print(
                 f"    measured={obs['measured']} ws={obs['websocket_events']} "
@@ -293,7 +383,7 @@ async def main() -> int:
                 flush=True,
             )
 
-    dest = default_out_path(f"generation_wire_{args.profile}", ".json")
+    dest = default_out_path(f"generation_wire_{args.mode}_{args.profile}", ".json")
     dest.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     print(f"\nwrote {dest}")
     return 0
