@@ -71,6 +71,14 @@ resolve in a single held call, the question worth paying for is narrow and speci
 anything arrive between `jwpduf` polls, and are the polls a client timer or a reaction?* The
 same script answers it with `--runs 1` pointed at a video request.
 
+> **ANSWERED the same day, and it is a client timer.**
+> [`2026-09-14-video-poll-is-a-fixed-client-timer.md`](2026-09-14-video-poll-is-a-fixed-client-timer.md)
+> — one t2v generation (~10 credits): `jwpduf` dispatches **5.006 s apart, stdev 3.5 ms,
+> total spread 10 ms over seven gaps**, with no collapse at completion and nothing inbound
+> between polls. Zero WebSocket, zero streaming, and each poll answered in under 0.81 s, so
+> it is not a long-poll either. Push is now measured absent on **both** generation paths
+> rather than generalised from one.
+
 Also not measured: any account other than `ffroliva`; the `labs.google` generation path
 (nothing here is served it — see survey #1); and whether a long-held `ogiZ0b` behaves the
 same when the server is slow enough to time it out.

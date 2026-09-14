@@ -163,7 +163,12 @@ async def run_once(client: Any, project_id: str, run: int, mode: str) -> dict[st
 
     def _proto(evt: dict[str, Any]) -> None:
         resp = evt.get("response", {})
-        protocols[str(resp.get("url", ""))[:300]] = str(resp.get("protocol", ""))
+        # Truncate to the SAME width the events use, or the lookup below silently
+        # misses every long URL. It was [:300] against events at [:200], which left
+        # 62 of the video run's responses -- including all 8 jwpduf polls -- with no
+        # HTTP version attributed at all. `spike_two_domain_protocol_survey.py` is
+        # NOT affected: it truncates both sides at 300, so its h2/h3 counts stand.
+        protocols[str(resp.get("url", ""))[:200]] = str(resp.get("protocol", ""))
 
     cdp.on("Network.responseReceived", _proto)
     for name in (
